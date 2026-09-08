@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getMetrics, getModels, ApiError } from "@/lib/api";
+import { getMetrics, getModels } from "@/lib/api";
 import type { ModelsResult, Task, TrainingMetrics } from "@/lib/types";
 import { TaskToggle } from "@/components/TaskToggle";
 import { ErrorPanel } from "@/components/ErrorPanel";
@@ -16,26 +16,41 @@ import { ConfusionMatrix } from "@/components/ConfusionMatrix";
  * random split puts near-identical slices of one patient on both sides and grades the model
  * on images it has effectively already seen.
  */
+/** What a completed fetch produced, tagged with the task it was fetched for. */
+interface Loaded {
+  task: Task;
+  metrics?: TrainingMetrics;
+  models?: ModelsResult | null;
+  error?: Error;
+}
+
 export default function PerformancePage() {
   const [task, setTask] = useState<Task>("multiclass");
-  const [metrics, setMetrics] = useState<TrainingMetrics | null>(null);
-  const [models, setModels] = useState<ModelsResult | null>(null);
-  const [error, setError] = useState<Error | null>(null);
-  const [busy, setBusy] = useState(true);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+
+  // `busy` is DERIVED from whether the loaded data matches the task currently selected,
+  // rather than being a separate flag flipped at the top of the effect. Setting state
+  // synchronously in an effect body triggers a second render pass before paint, and it
+  // also makes "loading" and "loaded" two sources of truth that can disagree - here they
+  // cannot, because there is only one.
+  const current = loaded?.task === task ? loaded : null;
+  const busy = current === null;
+  const metrics = current?.metrics ?? null;
+  const models = current?.models ?? null;
+  const error = current?.error ?? null;
 
   useEffect(() => {
     let cancelled = false;
-    setBusy(true);
-    setError(null);
 
     Promise.all([getMetrics(task), getModels().catch(() => null)])
       .then(([m, mods]) => {
-        if (cancelled) return;
-        setMetrics(m);
-        setModels(mods);
+        if (!cancelled) setLoaded({ task, metrics: m, models: mods });
       })
-      .catch((e) => !cancelled && setError(e instanceof Error ? e : new Error(String(e))))
-      .finally(() => !cancelled && setBusy(false));
+      .catch((e) => {
+        if (!cancelled) {
+          setLoaded({ task, error: e instanceof Error ? e : new Error(String(e)) });
+        }
+      });
 
     return () => {
       cancelled = true;

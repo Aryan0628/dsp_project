@@ -57,7 +57,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, init);
-  } catch (cause) {
+  } catch {
     // fetch only rejects on network-level failure, which here almost always means the
     // backend is not running. Say that, rather than surfacing "Failed to fetch".
     throw new ApiError(
