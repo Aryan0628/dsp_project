@@ -53,6 +53,7 @@ def cmd_train(args) -> int:
 
 def cmd_predict(args) -> int:
     from .predict import analyse_file, verdict_text
+    from .train import load_model
     from .visualize import pipeline_figure
 
     path = Path(args.image)
@@ -60,8 +61,15 @@ def cmd_predict(args) -> int:
         print(f"error: no such file: {path}", file=sys.stderr)
         return 1
 
-    _banner(f"ANALYSING  {path.name}")
-    result = analyse_file(path)
+    try:
+        bundle = load_model(multiclass=args.multiclass)
+    except FileNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    _banner(f"ANALYSING  {path.name}"
+            f"{'   (tumor typing)' if args.multiclass else '   (tumor detection)'}")
+    result = analyse_file(path, bundle)
     print(verdict_text(result))
 
     out = Path(args.output) if args.output else config.OUTPUT_DIR / f"result_{path.stem}.png"
@@ -188,6 +196,8 @@ examples:
                                              ...and add the fine-tuned CNN branch
   python main.py train --dataset synthetic   generated phantoms, no download needed
   python main.py predict scan.png            analyse one MRI, save the 8-panel figure
+  python main.py predict scan.png --multiclass
+                                             ...and name the tumor type
   python main.py demo                        produce every presentation figure
   python main.py metrics [--multiclass]      reprint the last training report
   python main.py serve                       run the REST API for the web client
@@ -224,6 +234,9 @@ examples:
     pr = sub.add_parser("predict", help="analyse a single MRI image")
     pr.add_argument("image")
     pr.add_argument("-o", "--output")
+    pr.add_argument("--multiclass", action="store_true",
+                    help="name the tumor TYPE (glioma/meningioma/pituitary/none) instead "
+                         "of only detecting one")
     pr.set_defaults(func=cmd_predict)
 
     d = sub.add_parser("demo", help="generate all presentation figures")

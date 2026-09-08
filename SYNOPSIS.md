@@ -84,7 +84,7 @@ contour detection with area and aspect-ratio plausibility filtering · selection
 best candidate by area weighted by hyperintensity.
 
 ### Stage 5 — Feature Extraction
-111 features in four interpretable families:
+171 features in seven interpretable families:
 * **First-order intensity statistics** — mean, variance, skewness, kurtosis, entropy,
   percentiles, bright-pixel fractions, 16-bin histogram
 * **GLCM (Haralick) texture** — contrast, dissimilarity, homogeneity, energy, correlation,
@@ -92,106 +92,180 @@ best candidate by area weighted by hyperintensity.
 * **Local Binary Patterns** — uniform LBP histogram (P=24, R=3)
 * **Shape / region descriptors** — area, perimeter, circularity, solidity, extent, aspect
   ratio, hyperintensity ratio
+* **Bilateral asymmetry** — comparison of each pixel with its mirror counterpart across the
+  mid-sagittal plane, the way a radiologist scans for a lesion
+* **Regional statistics** — a coarse 3×3 spatial map of the brain
+* **Anatomical location** — distance from the midline, depth inside the parenchyma, contact
+  with the brain border, radial position and mass bands, all normalised by the brain's own
+  radius so they encode anatomy rather than image resolution. These are the geometric cues
+  that distinguish tumor *types*: a pituitary adenoma sits on the midline at the skull base,
+  a meningioma hugs the brain's outer edge, a glioma is embedded deep in white matter.
 
 ### Stage 6 — Classification
 Four candidate models (Logistic Regression, SVM with RBF kernel, Random Forest, and an MLP
 neural network), each as a `StandardScaler → classifier` pipeline to prevent data leakage.
 All are compared by 5-fold stratified cross-validated ROC-AUC and the best is selected
-automatically, then evaluated once on a held-out test set.
+automatically, then evaluated once on a held-out test set. For the binary detection task the
+decision threshold is additionally tuned on out-of-fold training predictions to maximise
+sensitivity within a specificity budget, because a missed tumor costs far more than a second
+review.
 
-### Stage 7 — Result Visualisation
-An 8-panel figure showing the original MRI, the preprocessed image, the enhanced image, the
-before/after intensity histogram, the skull-stripped brain, the segmentation mask, the
-detected region with contour and bounding box, and a verdict card carrying the label,
-confidence, probability bar and measured region properties.
+### Stage 6b — Deep Branch (tumor typing only)
+The engineered features were measured to be insufficient for naming a tumor type — 69.3%
+accuracy with 23% glioma recall. A **ResNet-18 pretrained on ImageNet** is therefore
+fine-tuned on the same CLAHE-enhanced images, with augmentation targeted at the measured
+scale and framing shift between this dataset's train and test halves. Its probabilities are
+blended with the classical model's using a weight chosen on a validation split carved out of
+the training data, never on the test set. This lifted typing accuracy to 80.2% and pituitary
+recall from 45.9% to 83.8%.
+
+### Stage 7 — Result Presentation
+An 8-panel figure from the CLI, and a web interface showing the verdict, the full per-class
+probability distribution, all six pipeline stages, and every measurement behind the
+decision — so a clinician can check the reasoning rather than only the conclusion.
+
+### Stage 7b — Web Application
+A **FastAPI** REST backend exposing health, model metadata, per-scan analysis and the
+complete feature vector, consumed by a **Next.js** frontend. Uploaded scans are analysed in
+memory and never written to disk.
 
 ---
 
 ## 5. System Architecture
 
 ```text
-       Brain MRI Image
-              │
-              ▼
-       Image Acquisition
-              │
-              ▼
-        Preprocessing
-   (resize + median + bilateral)
-              │
-              ▼
-      Image Enhancement
-      (CLAHE + unsharp mask)
-              │
-              ▼
-      ROI / Segmentation
-  (skull strip + threshold +
-   morphology + contours)
-              │
-              ▼
-     Feature Extraction
- (intensity + GLCM + LBP + shape)
-              │
-              ▼
-      ML Classifier
-  (best of 4, by CV ROC-AUC)
-              │
-              ▼
-      Tumor / No Tumor
-      + confidence score
-              │
-              ▼
-    Result Visualisation
+                    Brain MRI Image
+                          │
+                          ▼
+                   Image Acquisition
+                          │
+                          ▼
+                    Preprocessing
+             (resize + median + bilateral)
+                          │
+                          ▼
+                  Image Enhancement
+                  (CLAHE + unsharp mask)
+                          │
+              ┌───────────┴────────────┐
+              │                        │
+              ▼                        │
+      ROI / Segmentation               │  the same enhanced image
+  (skull strip + threshold +           │  feeds both branches
+   morphology + contours)              │
+              │                        │
+              ▼                        ▼
+     Feature Extraction         Fine-tuned ResNet-18
+  (intensity + GLCM + LBP +      (typing task only)
+   shape + asymmetry +                 │
+   regional + LOCATION)                │
+       = 171 features                  │
+              │                        │
+              ▼                        │
+       ML Classifier                   │
+  (best of 4, by CV ROC-AUC)           │
+              │                        │
+              └───────────┬────────────┘
+                          ▼
+                  Weighted soft vote
+            (weight chosen on validation)
+                          │
+                          ▼
+              Tumor / No Tumor      or
+        Glioma / Meningioma / Pituitary / None
+              + confidence score
+                          │
+              ┌───────────┴────────────┐
+              ▼                        ▼
+      8-panel figure            FastAPI  ->  Next.js
+         (CLI)                    (web interface)
 ```
 
 ---
 
 ## 6. Technologies Used
 
-**Software:** Python 3.9+ · OpenCV · NumPy · scikit-image · scikit-learn · Matplotlib ·
-Pandas · Joblib · Streamlit (GUI) · pytest
+**Backend:** Python 3.9+ · OpenCV · NumPy · scikit-image · scikit-learn · PyTorch /
+torchvision · Matplotlib · Pandas · Joblib · FastAPI · Uvicorn · pytest
 
-**Hardware:** any standard laptop; 8 GB RAM recommended. **No GPU required** — the full
-training run completes in about 15 seconds on CPU.
+**Frontend:** Next.js 16 (App Router) · TypeScript · Tailwind CSS v4
+
+**Hardware:** any standard laptop; 8 GB RAM recommended. **No GPU required** — PyTorch is an
+optional dependency and the entire detection pipeline, CLI and API run without it. The
+classical training run takes about 80 seconds on CPU; on Apple Silicon the CNN fine-tunes on
+Metal (MPS) in about 6 minutes.
 
 ---
 
 ## 7. Results Achieved
 
+Both models are evaluated on the dataset's **own** held-out test split (394 images), so
+near-duplicate slices of one patient cannot appear on both sides.
+
+### Detection — is there a tumor?
+
 | metric | value |
 |---|---|
-| Accuracy | 98.00% |
-| Sensitivity (recall) | 96.00% |
+| Accuracy | **95.43%** |
+| Sensitivity (recall) | **93.77%** |
 | Specificity | 100.00% |
 | Precision | 100.00% |
-| F1 score | 97.96% |
-| ROC-AUC | 1.0000 |
-| Training time | 15 seconds (CPU) |
+| F1 score | 96.79% |
+| ROC-AUC | 0.9968 |
+| Missed tumors | 18 of 289 |
+| False alarms | 0 of 105 |
 
-Segmentation stage measured independently: 40/40 tumors localised, 5/40 false regions on
-healthy scans. Enhancement stage measured: contrast 73.7 → 81.4, entropy 6.16 → 7.08 bits,
-sharpness 272 → 1100. Verified by 19 automated tests.
+### Typing — which kind of tumor?
+
+| metric | value |
+|---|---|
+| Accuracy | **80.20%** |
+| Balanced accuracy | **79.48%** |
+| Macro F1 | 78.10% |
+| ROC-AUC (one-vs-rest) | 0.9610 |
+
+Per-class recall: No Tumor 100% · Meningioma 99.1% · Pituitary 83.8% · Glioma 35.0%.
+
+Adding the location feature family and the fine-tuned CNN raised typing accuracy from 72.1%
+to 80.2%, pituitary recall from 59.5% to 83.8%, and glioma recall from 24.0% to 35.0%.
+**Glioma remains the weak class**, and the measured reason is a defect in the dataset rather
+than the model: a trivial classifier using only image histogram and height can tell a
+training glioma from a test glioma at 0.858 AUC, because every training glioma is 512×512
+while the test gliomas come in 64 different sizes.
+
+Segmentation measured independently on the 253-image benchmark: 129/155 tumors localised
+(83.2%). Enhancement measured per scan: contrast 45.5 → 59.1, entropy 6.82 → 7.71 bits,
+sharpness 77.7 → 683.1. Verified by **66 automated tests** covering every stage, the deep
+branch and the REST API.
 
 ---
 
 ## 8. Scope of the Project
 
-Version 1 covers brain MRI and binary tumor classification. The architecture separates the
-image-processing stages from the classifier, so the system can be extended to classify
-tumor types, estimate tumor size and location, perform pixel-level U-Net segmentation, use
-deep-learning backbones, generate automated reports, and support other imaging modalities.
+The system covers brain MRI for **both** tumor detection and tumor typing, delivered as a
+REST API with a web interface. The architecture separates the image-processing stages from
+the classifier — Stages 2–5 are model-agnostic — which is what allowed a CNN to be added at
+Stage 6 for the typing task without touching anything upstream. It can be extended further
+to pixel-level U-Net segmentation, Grad-CAM explanations of the deep branch, 3D volumetric
+analysis, automated reporting, and other imaging modalities.
 
 ---
 
 ## 9. Limitations
 
+* **Glioma typing is weak (35% recall).** Detection is strong; naming the tumor type is only
+  partially solved, and the failure is concentrated almost entirely in this one class.
+* The CNN that supplies most of the typing accuracy is **not interpretable**. The audit
+  trail — the segmented region and its measurements — comes from the classical branch only.
 * Performance depends on the quality and diversity of the dataset; models degrade across
-  scanners (domain shift).
-* Binary classification only — tumor present or absent, not tumor type.
-* 2D slice analysis rather than 3D volumetric analysis.
+  scanners (domain shift). We measured this directly: the CNN scores 98.6% balanced accuracy
+  on a validation split drawn from the training distribution and 79.5% on the test split.
+* The test set is 105 healthy against 289 tumor scans. Real screening populations are
+  overwhelmingly healthy, so the reported 100% specificity would degrade in deployment.
+* 2D slice analysis rather than 3D volumetric analysis; splits are by slice, not by patient.
 * Intensity-based segmentation can be misled by calcifications or imaging artefacts.
-* Reported results are on synthetic data and demonstrate pipeline correctness rather than
-  clinical validity.
+* Results come from one curated public dataset and demonstrate pipeline correctness rather
+  than clinical validity.
 * The system is for **diagnostic assistance only** and cannot replace examination and
   diagnosis by a qualified medical professional.
 
@@ -200,10 +274,18 @@ deep-learning backbones, generate automated reports, and support other imaging m
 ## 10. Conclusion
 
 The implemented system combines traditional image processing with machine learning for brain
-MRI analysis. OpenCV performs preprocessing, enhancement and segmentation, while a
-cross-validated machine learning model performs classification. The hybrid design is
-deliberate: the classical stages produce a visible, measurable region that a clinician can
-audit, so the system is **explainable as well as accurate** — which is what makes such a tool
-usable in practice. The project demonstrates an effective application of computer vision and
-machine learning to medical image analysis and provides a foundation for more advanced
-automated diagnostic assistance systems.
+MRI analysis. OpenCV performs preprocessing, enhancement and segmentation; a cross-validated
+machine learning model performs classification; and for the harder tumor-typing task a
+fine-tuned CNN is blended in as a second opinion.
+
+The hybrid design is deliberate, and the project measured where each half earns its place
+rather than assuming it. The classical stages produce a visible, measurable region that a
+clinician can audit, and they are sufficient to answer *is there a tumor* at 93.8%
+sensitivity with zero false alarms. They were **not** sufficient to answer *which tumor* —
+69.3% accuracy — so the deep branch was added for that task alone, lifting it to 80.2%.
+Reporting that the interpretable half fell short, rather than quietly replacing it
+everywhere, is the honest version of the result.
+
+The project demonstrates an effective application of computer vision and machine learning to
+medical image analysis, and provides a foundation for more advanced automated diagnostic
+assistance systems.
