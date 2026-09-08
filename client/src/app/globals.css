@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/*
+ * A dark, low-chroma palette. This is not a style preference: MRI slices are grayscale and
+ * the whole point of the enhancement stage is to make subtle intensity differences visible.
+ * A bright UI surrounding a dark scan raises the viewer's adaptation level and flattens
+ * exactly the low-contrast detail we spent Stage 3 recovering. Radiology reading rooms are
+ * dimmed for the same reason.
+ *
+ * Colour is therefore reserved for meaning - a tumor verdict, a class bar, an error - and
+ * never used decoratively, so that a coloured pixel in this interface always denotes
+ * something.
+ */
+
+:root {
+  --bg: #0b0f14;
+  --bg-elevated: #121821;
+  --bg-panel: #161e29;
+  --border: #24303f;
+  --border-strong: #33455c;
+
+  --text: #e8edf3;
+  --text-muted: #93a3b8;
+  --text-dim: #64748b;
+
+  --accent: #38bdf8;
+  --accent-dim: #0ea5e9;
+
+  /* Semantic verdict colours. Amber rather than red for a positive finding: this is a
+     triage tool that flags a scan for review, not a diagnosis, and red would overstate
+     what the system is entitled to claim. */
+  --danger: #f59e0b;
+  --danger-bg: #2a1f0a;
+  --safe: #34d399;
+  --safe-bg: #0c2620;
+  --error: #f87171;
+  --error-bg: #2a1414;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-bg-panel: var(--bg-panel);
+  --color-border-subtle: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-dim: var(--text-dim);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --color-safe: var(--safe);
+  --color-error: var(--error);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers that share a column must share a width, or the eye reads the ragged edge as a
+   difference in magnitude. Applied to every measured value in the UI. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* MRI slices are pixel data, not photographs. Smoothing them on upscale invents intensity
+   values that were never measured, which is precisely the wrong thing to do to an image a
+   clinician is inspecting for subtle boundaries. */
+.pixelated {
+  image-rendering: pixelated;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.animate-pulse-subtle {
+  animation: pulse-subtle 1.6s ease-in-out infinite;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+/* Keyboard focus must stay visible: the upload control is reachable by tab and is the
+   primary action on the page. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

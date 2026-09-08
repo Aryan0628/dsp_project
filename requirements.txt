@@ -1,0 +1,33 @@
+# Core scientific stack
+numpy>=1.24,<2.0
+scipy>=1.10
+
+# Stage 2-4: image processing
+opencv-python-headless>=4.8      # swap for opencv-python if you want cv2.imshow windows
+scikit-image>=0.21               # GLCM (graycomatrix) and LBP
+
+# Stage 5-6: machine learning
+scikit-learn>=1.3
+joblib>=1.3
+pandas>=2.0
+
+# Stage 6b: the deep tumor-typing branch.
+# Optional. Everything else - the whole binary pipeline, the CLI and the API - runs without
+# torch; only `train --deep` and the CNN half of the tumor-typing model need it. On Apple
+# Silicon this installs with Metal (MPS) support, which is what makes fine-tuning a
+# ResNet-18 a few-minute job rather than an hour on CPU.
+torch>=2.0
+torchvision>=0.15
+
+# Stage 7: visualisation
+matplotlib>=3.7
+Pillow>=10.0
+
+# Stage 7b: the REST API consumed by the Next.js client in client/
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9          # required by FastAPI for multipart file uploads
+
+# Tests
+pytest>=7.4
+httpx>=0.27                      # FastAPI's TestClient transport

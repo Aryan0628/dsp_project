@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/synthetic/
+models/*.joblib
+outputs/*.png
+outputs/*.json
+.DS_Store
