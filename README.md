@@ -1,9 +1,11 @@
 # Medical Image Enhancement and Diagnostic Assistance System
-## Brain Tumor Detection from MRI using OpenCV and Machine Learning
+## Brain Tumor Detection and Typing from MRI using OpenCV and Machine Learning
 
 A hybrid computer-vision + machine-learning system that enhances brain MRI scans, locates
-suspicious regions, and classifies them as **Tumor** or **No Tumor** with a confidence score
-and a full visual explanation of how it reached that conclusion.
+suspicious regions, and answers two questions — **is there a tumor?** and **what kind?** —
+with a confidence score and a full visual explanation of how it reached its conclusion.
+
+Python/FastAPI backend, Next.js frontend.
 
 > **Assistive tool only.** This is a decision-support and triage system for radiologists.
 > It is not a medical device, is not regulatory-approved, and must never be the sole basis
@@ -14,31 +16,56 @@ and a full visual explanation of how it reached that conclusion.
 ## Quick start
 
 ```bash
-./run.sh check      # verify everything works        (~5 s)
-./run.sh train      # train + evaluate the model     (~15 s)
-./run.sh demo       # generate all figures           (~10 s)
-./run.sh app        # launch the web interface
+./run.sh setup      # one-time: Python venv + client dependencies
 ```
 
-The first run creates a virtual environment and installs dependencies automatically.
-No dataset download is required — the project generates its own realistic MRI data.
+Then two terminals:
+
+```bash
+./run.sh serve      # REST API      -> http://localhost:3000
+```
+
+```bash
+./run.sh client     # web interface -> http://localhost:5713
+```
+
+Open **http://localhost:5713**, drop in an MRI slice, and pick Detection or Typing.
+Sample scans live in `data/kaggle4/test/`.
 
 ---
 
 ## Results
 
+Two models ship, answering two different questions. Both are measured on the dataset's own
+held-out test split — slices from one patient never appear on both sides.
+
+### Detection — is there a tumor?
+
 | metric | value |
 |---|---|
-| Accuracy | **98.00%** |
-| Sensitivity (recall) | **96.00%** |
-| Specificity | 100.00% |
-| Precision | 100.00% |
-| F1 score | 97.96% |
-| ROC-AUC | 1.0000 |
-| Training time | 15 s on CPU |
+| Accuracy | **95.43%** |
+| Sensitivity (recall) | **93.77%** |
+| Specificity | **100.00%** |
+| ROC-AUC | 0.9968 |
+| Missed tumors | 18 of 289 |
+| False alarms | 0 of 105 |
+| Model | SVM-RBF on 171 features |
 
-Selected model: **Logistic Regression**, chosen automatically by 5-fold cross-validated
-ROC-AUC from four candidates. Full breakdown in [docs/05_RESULTS.md](docs/05_RESULTS.md).
+### Typing — which kind of tumor?
+
+| metric | value |
+|---|---|
+| Accuracy | **80.20%** |
+| Balanced accuracy | **79.48%** |
+| Macro F1 | 78.10% |
+| ROC-AUC (ovr) | 0.9610 |
+| Model | ensemble: SVM-RBF × 0.05 + fine-tuned ResNet-18 × 0.95 |
+
+Per-class recall: No Tumor 100% · Meningioma 99.1% · Pituitary 83.8% · **Glioma 35.0%**.
+
+Glioma is the weak class and we report it as such — see
+[docs/05_RESULTS.md](docs/05_RESULTS.md) for the measured reason (the dataset's own train
+and test gliomas are separable at 0.858 AUC by image size alone).
 
 ---
 
@@ -54,25 +81,31 @@ ROC-AUC from four candidates. Full breakdown in [docs/05_RESULTS.md](docs/05_RES
    [3] ENHANCEMENT            CLAHE + unsharp masking
         |                     "make the invisible visible"
         v
-   [4] SEGMENTATION           skull strip -> statistical threshold -> morphology -> contours
-        |                     "find and isolate the suspicious blob"
+   [4] SEGMENTATION           skull strip -> statistical threshold + contralateral
+        |                     asymmetry -> morphology -> contours
         v
-   [5] FEATURE EXTRACTION     intensity + GLCM texture + LBP + shape  = 111 numbers
-        |                     "turn a picture into a row of numbers"
+   [5] FEATURE EXTRACTION     intensity + GLCM + LBP + shape + asymmetry + regional
+        |                     + anatomical LOCATION            = 171 numbers
         v
-   [6] CLASSIFICATION         LogReg / SVM / RandomForest / MLP -> best by CV ROC-AUC
-        |
+   [6] CLASSIFICATION         (a) LogReg / SVM / RandomForest / MLP, best by CV ROC-AUC
+        |                     (b) fine-tuned ResNet-18  [typing only]
+        |                     -> blended with a weight chosen on validation data
         v
-   [7] VISUALISATION          8-panel figure: every stage + the verdict card
+   [7] PRESENTATION           8-panel figure (CLI) or the web interface
 ```
 
-### Why hybrid, and not pure deep learning?
+### Why hybrid, and where each half earns its place
 
-A CNN outputs a label a doctor cannot audit. Our OpenCV stages produce a **visible,
-measurable region** — area, circularity, solidity, hyperintensity ratio — so the reasoning
-is inspectable. Classical feature engineering also works on hundreds of images rather than
-the thousands a CNN needs. Stages 1–5 are model-agnostic, so a CNN can be dropped into
-Stage 6 later without touching anything else.
+The engineered features make the system **auditable**: they produce a visible, measurable
+region — area, circularity, solidity, midline distance, depth in the parenchyma — that a
+clinician can inspect and overrule. They are enough to answer *is there a tumor* at 93.8%
+sensitivity.
+
+They are **not** enough to answer *which tumor*, and we measured that rather than assuming
+it: the classical model alone reaches 69.3% on typing. Tumor type depends on spatial
+structure a global texture histogram averages away, so the typing model adds a fine-tuned
+CNN and blends the two. Detection stays purely classical, because there the CNN adds
+nothing worth the loss of interpretability.
 
 ---
 
@@ -80,49 +113,82 @@ Stage 6 later without touching anything else.
 
 | command | what it does |
 |---|---|
-| `./run.sh check` | run the 19-test suite (pre-flight check before a demo) |
-| `./run.sh train` | full training run: generate data, extract features, compare 4 models, evaluate |
-| `./run.sh demo` | produce every presentation figure into `outputs/` |
+| `./run.sh serve` | start the REST API on port 3000 |
+| `./run.sh client` | start the Next.js frontend on port 5713 |
+| `./run.sh check` | run the 66-test suite (pre-flight check before a demo) |
+| `./run.sh train-all` | retrain both shipped models |
+| `./run.sh train --dataset kaggle4` | train detection only |
+| `./run.sh train --dataset kaggle4 --multiclass --deep` | train typing, classical + CNN |
 | `./run.sh predict <image>` | analyse a single MRI and save the 8-panel figure |
-| `./run.sh generate` | (re)generate the synthetic dataset |
-| `./run.sh metrics` | reprint the last training report |
-| `./run.sh app` | launch the Streamlit web interface |
+| `./run.sh demo` | produce every presentation figure into `outputs/` |
+| `./run.sh metrics [--multiclass]` | reprint the last training report |
 
 Equivalent direct form: `python main.py <command>` (see `python main.py --help`).
 
 ---
 
+## The API
+
+FastAPI on **port 3000**. Interactive docs at `http://localhost:3000/docs`.
+
+| method | route | purpose |
+|---|---|---|
+| `GET` | `/health` | liveness, which models are trained, torch/device status |
+| `GET` | `/models` | details of the loaded models, including the ensemble weight |
+| `GET` | `/classes` | label sets with a plain-language description of each tumor type |
+| `GET` | `/metrics?multiclass=` | the full training report for either task |
+| `POST` | `/analyze?multiclass=&include_images=` | run the pipeline on an uploaded slice |
+| `POST` | `/analyze/features` | the complete named 171-feature vector, grouped by family |
+
+`/analyze` returns the verdict, per-class probabilities, region geometry, anatomical
+location measurements, enhancement gain, and every pipeline stage as an inline base64
+image. Uploaded scans are never written to disk — the analysis is stateless.
+
+**Ports.** The API takes 3000 and the frontend 5713. Next.js defaults to 3000, so it is the
+frontend that was moved: the API port is the one that ends up in deployment scripts and
+proxy configs, so it is the one worth keeping conventional. Change either in
+`src/braintumor/config.py` (`API_PORT`, `CLIENT_PORT`, `CORS_ORIGINS`) and
+`client/package.json`.
+
+---
+
+## The web interface
+
+`client/` is a Next.js 16 app (App Router, TypeScript, Tailwind v4).
+
+- **Analyse** — drop in a slice, switch between Detection and Typing, and see the verdict,
+  the full probability distribution, all six pipeline stages, and every measurement.
+- **Performance** — held-out metrics for either model: confusion matrix, per-class recall,
+  and a side-by-side of what the CNN branch contributed.
+
+The UI is dark by design, not by fashion: MRI slices are grayscale and a bright surround
+raises the viewer's adaptation level, flattening exactly the low-contrast detail Stage 3
+recovers.
+
+---
+
 ## Using a real dataset
 
-The pipeline is dataset-agnostic. Drop any brain MRI dataset into:
+The pipeline is dataset-agnostic. For binary data:
 
 ```
 data/raw/yes/     # scans WITH a tumor
 data/raw/no/      # scans WITHOUT a tumor
 ```
 
-then run `./run.sh train`. The loader auto-detects it (it also accepts folder names
-`tumor`, `notumor`, `positive`, `negative`, `healthy`, `1`, `0`) and uses it instead of
-synthetic data. **No code changes are needed.**
+then `./run.sh train --dataset classic`. The loader also accepts `tumor`, `notumor`,
+`positive`, `negative`, `healthy`, `glioma`, `meningioma`, `pituitary`, `1`, `0`.
 
-Force synthetic data even when a real dataset is present with `./run.sh train --synthetic`.
+For a dataset with its own split, mirror `data/kaggle4/{train,test}/<class>/` and use
+`--dataset kaggle4`. Download both public datasets with:
 
----
+```bash
+.venv/bin/python scripts/download_datasets.py
+```
 
-## The synthetic MRI simulator
-
-Rather than requiring a dataset download, the project ships a physically-motivated MRI
-phantom generator (`src/braintumor/dataset.py`). It builds anatomy in layers — skull, CSF,
-grey matter, white matter, lateral ventricles, cortical folding — then optionally injects a
-tumor with an irregular Fourier-perturbed boundary, peritumoral edema halo, and sometimes a
-necrotic core. It then applies realistic acquisition artefacts:
-
-- **B1 bias field** — the smooth brightness gradient real coils produce
-- **Rician noise** — the mathematically correct model for an MRI *magnitude* image, since
-  the magnitude of complex Gaussian noise is Rician, not Gaussian
-
-This makes the project reproducible on any machine with zero downloads, and it means the
-enhancement stage is correcting genuine simulated artefacts rather than doing cosmetic work.
+`--dataset synthetic` needs no download at all — the project ships a physically-motivated
+MRI phantom generator (skull, CSF, grey/white matter, ventricles, tumors with
+Fourier-perturbed boundaries and necrotic cores, B1 bias field, Rician noise).
 
 ---
 
@@ -137,88 +203,95 @@ dsp_project/
 │
 ├── docs/
 │   ├── 01_WHAT_IS_THIS_PROJECT.md    <- READ THIS FIRST (speaking script)
-│   ├── 02_VIVA_QUESTIONS_ANSWERS.md  <- 21 likely questions with answers
+│   ├── 02_VIVA_QUESTIONS_ANSWERS.md  <- likely questions with answers
 │   ├── 03_DEMO_SCRIPT_30MIN.md       <- minute-by-minute presentation plan
 │   ├── 04_TECHNICAL_DEEP_DIVE.md     <- the maths behind every stage
-│   └── 05_RESULTS.md                 <- measured results (auto-generated)
+│   ├── 05_RESULTS.md                 <- measured results
+│   └── 06_DATASETS.md                <- the datasets, and what is wrong with them
 │
 ├── src/braintumor/
 │   ├── config.py               every tunable constant in one place
 │   ├── preprocess.py           STAGE 2  grayscale, resize, denoise, normalise
 │   ├── enhance.py              STAGE 3  CLAHE, unsharp mask, gamma, metrics
 │   ├── segment.py              STAGE 4  skull strip, threshold, morphology, contours
-│   ├── features.py             STAGE 5  intensity + GLCM + LBP + shape  (111 features)
-│   ├── dataset.py              STAGE 1  MRI simulator + real-dataset loader
-│   ├── model.py                STAGE 6  the four candidate classifiers
-│   ├── train.py                training, model selection, evaluation
+│   ├── features.py             STAGE 5  7 feature families, 171 features
+│   ├── dataset.py              STAGE 1  MRI simulator + real-dataset loaders
+│   ├── model.py                STAGE 6  the four classical candidates
+│   ├── deep.py                 STAGE 6b ResNet-18 fine-tuning + ensemble
+│   ├── train.py                training, model selection, threshold tuning, evaluation
 │   ├── predict.py              single-image inference
 │   ├── visualize.py            STAGE 7  all figures
+│   ├── api.py                  STAGE 7b FastAPI REST backend
 │   └── cli.py                  command line interface
 │
-├── app/streamlit_app.py        web GUI
-├── tests/test_pipeline.py      19 tests, one group per stage
-├── data/                       raw/ (real datasets) and synthetic/ (generated)
-├── models/                     trained model bundle
-└── outputs/                    figures and metrics.json
+├── client/                     Next.js frontend (port 5713)
+│   └── src/
+│       ├── app/                pages: analyse, performance
+│       ├── components/         upload, verdict, probabilities, stages, measurements
+│       └── lib/                typed API client
+│
+├── scripts/
+│   ├── download_datasets.py    fetch both public datasets from Hugging Face
+│   └── train_all.sh            retrain both shipped models
+│
+├── tests/                      66 tests: pipeline, location features, deep branch, API
+├── data/                       raw/ · kaggle4/ · synthetic/
+├── models/                     trained bundles (.joblib) + CNN weights (.pt)
+└── outputs/                    figures and metrics JSON
 ```
 
 ---
 
-## Generated figures
-
-After `./run.sh demo`, `outputs/` contains:
-
-| file | contents |
-|---|---|
-| `demo_tumor_pipeline.png` | the headline 8-panel figure for a tumor case |
-| `demo_healthy_pipeline.png` | the same for a healthy case |
-| `demo_enhancement.png` | Input vs global HE vs CLAHE vs CLAHE+unsharp, with histograms |
-| `demo_samples.png` | a grid of several scans through the pipeline |
-| `training_report.png` | model comparison, confusion matrix, metrics, feature importances |
-| `metrics.json` | the full machine-readable report |
-
----
-
-## Two real bugs, and how they were fixed
+## Four real bugs, and how they were fixed
 
 Documented in code comments and covered by regression tests — see
 [docs/04_TECHNICAL_DEEP_DIVE.md](docs/04_TECHNICAL_DEEP_DIVE.md).
 
 1. **The flood-fill split-background bug.** The head ellipse often touches the top and
-   bottom image borders, which splits the background into two disconnected regions. A
-   corner flood-fill reached only one, so the other half of the frame was misclassified as
-   an interior hole and filled in — the brain mask became a crescent covering half the
-   image. Fixed by padding a 1-pixel frame before flood filling.
+   bottom image borders, splitting the background into two disconnected regions. A corner
+   flood-fill reached only one, so the other half of the frame was misclassified as an
+   interior hole and filled in. Fixed by padding a 1-pixel frame before flood filling.
 
-2. **Otsu flags every healthy brain.** Otsu's method always splits a histogram into two
-   classes, even when nothing is abnormal, so on a healthy brain it returned grey-vs-white
-   matter as "lesion". Measured: **100% of healthy scans falsely flagged.** Replaced with a
-   tissue-relative statistical threshold (`mean + 1.5σ` over pixels above the brain median,
-   which excludes dark CSF): **100% of tumors detected, 3% false flags.**
+2. **Otsu flags every healthy brain.** Otsu always splits a histogram into two classes,
+   even when nothing is abnormal, so on a healthy brain it returned grey-vs-white matter as
+   "lesion" — **100% of healthy scans falsely flagged.** Replaced with a tissue-relative
+   statistical threshold (`mean + 1.5σ` over pixels above the brain median).
+
+3. **Threshold tuning made results worse.** The first tuner maximised specificity subject to
+   a sensitivity floor, and picked 0.93 because the model is over-confident on training
+   folds. On the test set that dropped sensitivity from 91% to 71%. Inverting the objective
+   — maximise sensitivity subject to a specificity floor — fixed it and is robust to the
+   probability shift, because lowering a threshold cannot reduce sensitivity.
+
+4. **Test-set peeking in the ensemble.** The first version of the deep branch picked
+   whichever of classical / CNN / ensemble scored best *on the test set*. That makes the
+   reported number the maximum of three draws rather than an estimate. Fixed by choosing
+   the blend weight on a validation split carved out of training data, with 0.0 and 1.0 in
+   the grid so the weight search *is* the branch choice.
 
 ---
 
 ## Limitations
 
-- Performance depends on dataset quality and diversity; models degrade across scanners
-  (domain shift).
-- Binary classification only — tumor present/absent, not tumor *type*.
+- **Glioma typing is weak** (35% recall). Detection is strong; typing is partially solved.
+- The CNN that supplies most of the typing accuracy is **not interpretable** — the audit
+  trail comes from the classical branch only.
+- Performance depends on dataset quality and diversity; models degrade across scanners.
 - 2D slice analysis, not 3D volumetric.
-- Intensity-based segmentation can be misled by calcifications or imaging artefacts.
-- Results reported here are on synthetic data and demonstrate pipeline correctness, not
-  clinical validity. Clinical use would require real multi-centre validation and regulatory
-  approval.
+- Results come from one curated public dataset. Clinical use would require multi-centre
+  validation and regulatory approval.
 
 ## Future scope
 
-Multi-class tumor typing (glioma / meningioma / pituitary) · U-Net pixel-level segmentation
-with Dice scoring · transfer learning with a pretrained CNN backbone · Grad-CAM heatmaps ·
-3D tumor volume estimation across a full MRI stack · automated PDF reporting · extension to
-CT and other modalities.
+Grad-CAM heatmaps over the CNN branch · U-Net pixel-level segmentation with Dice scoring ·
+patient-level rather than slice-level splits · 3D tumor volume estimation across a full MRI
+stack · automated PDF reporting · extension to CT and other modalities.
 
 ---
 
 ## Requirements
 
-Python 3.9+. Dependencies in `requirements.txt` (OpenCV, scikit-learn, scikit-image, NumPy,
-Matplotlib, Streamlit). No GPU required.
+Python 3.9+ and Node 18+. Python dependencies in `requirements.txt` (OpenCV, scikit-learn,
+scikit-image, NumPy, Matplotlib, FastAPI, PyTorch). **No GPU required** — PyTorch is
+optional, and the whole binary pipeline, CLI and API run without it. On Apple Silicon the
+CNN fine-tunes on Metal (MPS) in about 6 minutes.

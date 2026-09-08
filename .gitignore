@@ -2,8 +2,22 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
 data/synthetic/
 models/*.joblib
 outputs/*.png
 outputs/*.json
 .DS_Store
+
+# Environment and local configuration
+.env
+.env.*
+!.env.example
+
+# Logs and local build output
+*.log
+coverage/
+dist/
+build/
