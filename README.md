@@ -30,7 +30,7 @@ Then two terminals:
 ```
 
 Open **http://localhost:5713**, drop in an MRI slice, and pick Detection or Typing.
-Sample scans live in `data/kaggle4/test/`.
+Sample scans (2 per class) live in `backend/data/samples/`. The full datasets are not in git; fetch them with `.venv/bin/python backend/scripts/download_datasets.py` before training.
 
 ---
 
@@ -64,7 +64,7 @@ held-out test split — slices from one patient never appear on both sides.
 Per-class recall: No Tumor 100% · Meningioma 99.1% · Pituitary 83.8% · **Glioma 35.0%**.
 
 Glioma is the weak class and we report it as such — see
-[docs/05_RESULTS.md](docs/05_RESULTS.md) for the measured reason (the dataset's own train
+[lesson 08](docs/learn/08_EVALUATION_METRICS.md) for the measured reason (the dataset's own train
 and test gliomas are separable at 0.858 AUC by image size alone).
 
 ---
@@ -120,10 +120,10 @@ nothing worth the loss of interpretability.
 | `./run.sh train --dataset kaggle4` | train detection only |
 | `./run.sh train --dataset kaggle4 --multiclass --deep` | train typing, classical + CNN |
 | `./run.sh predict <image>` | analyse a single MRI and save the 8-panel figure |
-| `./run.sh demo` | produce every presentation figure into `outputs/` |
+| `./run.sh demo` | produce every presentation figure into `backend/outputs/` |
 | `./run.sh metrics [--multiclass]` | reprint the last training report |
 
-Equivalent direct form: `python main.py <command>` (see `python main.py --help`).
+Equivalent direct form, from inside `backend/`: `python main.py <command>` (see `python main.py --help`).
 
 ---
 
@@ -147,14 +147,14 @@ image. Uploaded scans are never written to disk — the analysis is stateless.
 **Ports.** The API takes 3000 and the frontend 5713. Next.js defaults to 3000, so it is the
 frontend that was moved: the API port is the one that ends up in deployment scripts and
 proxy configs, so it is the one worth keeping conventional. Change either in
-`src/braintumor/config.py` (`API_PORT`, `CLIENT_PORT`, `CORS_ORIGINS`) and
-`client/package.json`.
+`backend/src/braintumor/config.py` (`API_PORT`, `CLIENT_PORT`, `CORS_ORIGINS`) and
+`frontend/package.json`.
 
 ---
 
 ## The web interface
 
-`client/` is a Next.js 16 app (App Router, TypeScript, Tailwind v4).
+`frontend/` is a Next.js 16 app (App Router, TypeScript, Tailwind v4).
 
 - **Analyse** — drop in a slice, switch between Detection and Typing, and see the verdict,
   the full probability distribution, all six pipeline stages, and every measurement.
@@ -172,18 +172,18 @@ recovers.
 The pipeline is dataset-agnostic. For binary data:
 
 ```
-data/raw/yes/     # scans WITH a tumor
-data/raw/no/      # scans WITHOUT a tumor
+backend/data/raw/yes/     # scans WITH a tumor
+backend/data/raw/no/      # scans WITHOUT a tumor
 ```
 
 then `./run.sh train --dataset classic`. The loader also accepts `tumor`, `notumor`,
 `positive`, `negative`, `healthy`, `glioma`, `meningioma`, `pituitary`, `1`, `0`.
 
-For a dataset with its own split, mirror `data/kaggle4/{train,test}/<class>/` and use
+For a dataset with its own split, mirror `backend/data/kaggle4/{train,test}/<class>/` and use
 `--dataset kaggle4`. Download both public datasets with:
 
 ```bash
-.venv/bin/python scripts/download_datasets.py
+.venv/bin/python backend/scripts/download_datasets.py
 ```
 
 `--dataset synthetic` needs no download at all — the project ships a physically-motivated
@@ -194,58 +194,80 @@ Fourier-perturbed boundaries and necrotic cores, B1 bias field, Rician noise).
 
 ## Project layout
 
+The repo is two independent apps that only talk over HTTP, so each can be deployed on
+its own.
+
 ```
 dsp_project/
-├── main.py                     entry point  (python main.py --help)
-├── run.sh                      command shortcuts
-├── requirements.txt
-├── SYNOPSIS.md                 the project synopsis
+├── backend/                    Python ML API (FastAPI) - deploy on its own
+│   ├── main.py                 entry point  (python main.py --help)
+│   ├── requirements.txt
+│   ├── Dockerfile              API image (models baked in)
+│   ├── src/braintumor/
+│   │   ├── config.py           every tunable constant in one place
+│   │   ├── preprocess.py       STAGE 2  grayscale, resize, denoise, normalise
+│   │   ├── enhance.py          STAGE 3  CLAHE, unsharp mask, gamma, metrics
+│   │   ├── segment.py          STAGE 4  skull strip, threshold, morphology, contours
+│   │   ├── features.py         STAGE 5  7 feature families, 171 features
+│   │   ├── dataset.py          STAGE 1  MRI simulator + real-dataset loaders
+│   │   ├── model.py            STAGE 6  the four classical candidates
+│   │   ├── deep.py             STAGE 6b ResNet-18 fine-tuning + ensemble
+│   │   ├── train.py            training, model selection, threshold tuning, evaluation
+│   │   ├── predict.py          single-image inference
+│   │   ├── visualize.py        STAGE 7  all figures
+│   │   ├── api.py              STAGE 7b FastAPI REST backend
+│   │   └── cli.py              command line interface
+│   ├── scripts/                download_datasets.py, train_all.sh
+│   ├── tests/                  66 tests: pipeline, location features, deep branch, API
+│   ├── data/                   raw/ · kaggle4/ · synthetic/
+│   ├── models/                 trained bundles (.joblib) + CNN weights (.pt)
+│   └── outputs/                figures and metrics JSON
 │
-├── docs/
-│   ├── 01_WHAT_IS_THIS_PROJECT.md    <- READ THIS FIRST (speaking script)
-│   ├── 02_VIVA_QUESTIONS_ANSWERS.md  <- likely questions with answers
-│   ├── 03_DEMO_SCRIPT_30MIN.md       <- minute-by-minute presentation plan
-│   ├── 04_TECHNICAL_DEEP_DIVE.md     <- the maths behind every stage
-│   ├── 05_RESULTS.md                 <- measured results
-│   └── 06_DATASETS.md                <- the datasets, and what is wrong with them
-│
-├── src/braintumor/
-│   ├── config.py               every tunable constant in one place
-│   ├── preprocess.py           STAGE 2  grayscale, resize, denoise, normalise
-│   ├── enhance.py              STAGE 3  CLAHE, unsharp mask, gamma, metrics
-│   ├── segment.py              STAGE 4  skull strip, threshold, morphology, contours
-│   ├── features.py             STAGE 5  7 feature families, 171 features
-│   ├── dataset.py              STAGE 1  MRI simulator + real-dataset loaders
-│   ├── model.py                STAGE 6  the four classical candidates
-│   ├── deep.py                 STAGE 6b ResNet-18 fine-tuning + ensemble
-│   ├── train.py                training, model selection, threshold tuning, evaluation
-│   ├── predict.py              single-image inference
-│   ├── visualize.py            STAGE 7  all figures
-│   ├── api.py                  STAGE 7b FastAPI REST backend
-│   └── cli.py                  command line interface
-│
-├── client/                     Next.js frontend (port 5713)
+├── frontend/                   React + TypeScript web app (Next.js) - deploy on its own
+│   ├── Dockerfile              UI image
 │   └── src/
 │       ├── app/                pages: analyse, performance
 │       ├── components/         upload, verdict, probabilities, stages, measurements
-│       └── lib/                typed API client
+│       └── lib/                typed API client (reads NEXT_PUBLIC_API_URL)
 │
-├── scripts/
-│   ├── download_datasets.py    fetch both public datasets from Hugging Face
-│   └── train_all.sh            retrain both shipped models
-│
-├── tests/                      66 tests: pipeline, location features, deep branch, API
-├── data/                       raw/ · kaggle4/ · synthetic/
-├── models/                     trained bundles (.joblib) + CNN weights (.pt)
-└── outputs/                    figures and metrics JSON
+├── docs/learn/                 step-by-step course, start at 00_COURSE_MAP.md
+├── docker-compose.yml          run both as containers locally
+├── run.sh                      command shortcuts for both halves
+└── SYNOPSIS.md                 the project synopsis
 ```
 
----
+## Deployment
+
+The frontend never imports the model; it only calls the API. Two settings connect them:
+
+| where | variable | what it does |
+|---|---|---|
+| frontend (build time) | `NEXT_PUBLIC_API_URL` | the API address the browser calls, e.g. `https://api.example.com` |
+| backend (run time) | `CORS_ORIGINS` | comma-separated frontend addresses allowed to call the API |
+| backend (run time) | `PORT` | port to listen on (default 3000; most hosts set it) |
+
+**Backend**, on any Docker host (Render, Railway, Fly.io, a VM):
+
+```bash
+./run.sh train-all                       # models/*.joblib are git-ignored, so build them first
+docker build -t braintumor-api backend/
+docker run -p 3000:3000 -e CORS_ORIGINS=https://your-ui.example.com braintumor-api
+```
+
+**Frontend**, on Vercel/Netlify (set root directory `frontend/` and the env var
+`NEXT_PUBLIC_API_URL`), or as a container:
+
+```bash
+docker build --build-arg NEXT_PUBLIC_API_URL=https://your-api.example.com -t braintumor-ui frontend/
+docker run -p 5713:5713 braintumor-ui
+```
+
+**Both locally as containers:** `docker compose up --build`, then open http://localhost:5713.
 
 ## Four real bugs, and how they were fixed
 
 Documented in code comments and covered by regression tests — see
-[docs/04_TECHNICAL_DEEP_DIVE.md](docs/04_TECHNICAL_DEEP_DIVE.md).
+the course in [docs/learn/](docs/learn/00_COURSE_MAP.md).
 
 1. **The flood-fill split-background bug.** The head ellipse often touches the top and
    bottom image borders, splitting the background into two disconnected regions. A corner

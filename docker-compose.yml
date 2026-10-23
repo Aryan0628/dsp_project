@@ -1,0 +1,16 @@
+# Run both halves locally as containers:  docker compose up --build
+# In production, deploy backend/ and frontend/ separately; they only share the API URL.
+services:
+  api:
+    build: ./backend
+    ports: ["3000:3000"]
+    environment:
+      CORS_ORIGINS: http://localhost:5713
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3000   # the browser calls the API, so use a host URL
+    ports: ["5713:5713"]
+    depends_on: [api]

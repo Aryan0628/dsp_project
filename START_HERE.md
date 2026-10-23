@@ -1,42 +1,55 @@
 # START HERE
-### You have 30 minutes. Read this page, then read `docs/01`.
+### You have 30 minutes. Read this page, then start the course in `docs/learn/`.
 
 ---
 
 ## IF YOU ONLY HAVE 5 MINUTES
 
-Read **[docs/01_WHAT_IS_THIS_PROJECT.md](docs/01_WHAT_IS_THIS_PROJECT.md)** — it is written
-as a speaking script, not documentation. Everything you need to explain the project is
-there in the order you would say it.
+Read **[docs/learn/10_REVISION_AND_GLOSSARY.md](docs/learn/10_REVISION_AND_GLOSSARY.md)**: the
+whole project on one page, the numbers to memorise, and a final quiz.
 
-Then open **`outputs/demo_tumor_pipeline.png`**. That single image tells the whole story.
+Then open **`backend/outputs/demo_tumor_pipeline.png`**. That single image tells the whole story.
 
 ---
 
 ## THE PROJECT IN ONE SENTENCE
 
 > We built a system that takes a brain MRI, cleans and enhances it with OpenCV,
-> automatically finds the suspicious region, and uses machine learning to classify it as
-> Tumor or No Tumor with a confidence score and a picture showing exactly what it found.
+> automatically finds the suspicious region, and uses machine learning to say whether there
+> is a tumor **and what kind it is** — with a confidence score and a picture showing exactly
+> what it found. It runs as a web app: Python API, Next.js frontend.
 
-**Results: 98% accuracy, 96% sensitivity, 100% specificity, ROC-AUC 1.0, trains in 15
-seconds.**
+**Detection: 95.4% accuracy, 93.8% sensitivity, 100% specificity, ROC-AUC 0.997.**
+**Typing: 80.2% accuracy across glioma / meningioma / pituitary / none.**
 
 ---
 
-## THE FOUR COMMANDS
+## RUNNING THE DEMO — TWO TERMINALS
 
 ```bash
 cd /Users/aryangupta/Documents/dsp_project
 
-./run.sh check      # pre-flight check, ~5 s   -> prints ALL CHECKS PASSED
-./run.sh train      # full training run, ~15 s -> the live-demo showstopper
-./run.sh demo       # regenerate every figure
-./run.sh app        # launch the web GUI
+./run.sh serve      # terminal 1: the API      -> http://localhost:3000
+./run.sh client     # terminal 2: the web app  -> http://localhost:5713
+```
+
+Then open **http://localhost:5713** and drag in a scan from `backend/data/samples/` (2 of each class).
+
+### The other commands
+
+```bash
+./run.sh check                       # pre-flight check, ~12 s -> 66 tests pass
+./run.sh predict <image> --multiclass # analyse one scan from the terminal
+./run.sh train-all                   # retrain both models (~10 min, the showstopper)
+./run.sh demo                        # regenerate every figure
 ```
 
 Everything is already trained and every figure is already generated, so you can present
 without running anything. The commands are there to prove it is real.
+
+> **If the web app misbehaves on the day**, `./run.sh predict <image> --multiclass` prints
+> the same verdict, the same class probabilities and the same measurements to the terminal,
+> and every figure is already in `backend/outputs/`. Nothing in the talk depends on the browser.
 
 ---
 
@@ -44,17 +57,14 @@ without running anything. The commands are there to prove it is real.
 
 | document | what it gives you | when to read |
 |---|---|---|
-| **[docs/01_WHAT_IS_THIS_PROJECT.md](docs/01_WHAT_IS_THIS_PROJECT.md)** | the speaking script — what the project is, why it matters, how it works, in plain words | **first, always** |
-| **[docs/03_DEMO_SCRIPT_30MIN.md](docs/03_DEMO_SCRIPT_30MIN.md)** | minute-by-minute presentation plan with exact lines to say and commands to run | second |
-| **[docs/02_VIVA_QUESTIONS_ANSWERS.md](docs/02_VIVA_QUESTIONS_ANSWERS.md)** | 21 likely questions with prepared answers | before questions |
-| **[docs/05_RESULTS.md](docs/05_RESULTS.md)** | all measured numbers and what they mean | for the results slide |
-| **[docs/04_TECHNICAL_DEEP_DIVE.md](docs/04_TECHNICAL_DEEP_DIVE.md)** | the maths behind every stage | if you want to answer *anything* |
+| **[docs/learn/00_COURSE_MAP.md](docs/learn/00_COURSE_MAP.md)** | step-by-step course (10 lessons) if you are new to ML / image processing | **first, in order** |
+| **[docs/learn/10_REVISION_AND_GLOSSARY.md](docs/learn/10_REVISION_AND_GLOSSARY.md)** | one-page recap, key numbers, glossary, quiz | the night before |
 | **[SYNOPSIS.md](SYNOPSIS.md)** | your synopsis, updated with what was actually built | to submit |
 | **[README.md](README.md)** | project overview and structure | for the repo |
 
 ---
 
-## THE FIGURES (all in `outputs/`)
+## THE FIGURES (all in `backend/outputs/`)
 
 | file | use it for |
 |---|---|
@@ -68,15 +78,19 @@ without running anything. The commands are there to prove it is real.
 
 ## THE THREE THINGS THAT WILL IMPRESS THEM MOST
 
-**1. The hybrid architecture argument.**
+**1. The hybrid architecture argument — and knowing where each half stops.**
 > "OpenCV does the deterministic image work, machine learning does the pattern recognition.
-> We used both deliberately, because a pure CNN is a black box a doctor cannot audit, while
-> our OpenCV half produces a visible measurable region. Accurate *and* explainable."
+> Our engineered features produce a visible measurable region a doctor can audit, and they
+> answer *is there a tumor* at 93.8% sensitivity. But we measured that they could NOT answer
+> *which tumor* — only 69% — because tumor type depends on spatial structure a texture
+> histogram averages away. So the typing model adds a fine-tuned ResNet-18 and blends the
+> two. We didn't guess where the classical approach ran out; we measured it."
 
 **2. Sensitivity over accuracy.**
 > "We report sensitivity separately, because a false negative — telling a tumor patient they
-> are fine — is far worse than a false positive. Accuracy alone would hide our two missed
-> cases. That is why we always show the confusion matrix."
+> are fine — is far worse than a false positive. Accuracy alone would hide our 18 missed
+> cases. That is why we always show the confusion matrix, and why the decision threshold is
+> 0.153 rather than the default 0.5."
 
 **3. The two bugs you actually fixed.** Nothing proves you wrote the code like this:
 > "Otsu thresholding is the textbook answer and it failed completely — it flagged 100% of
@@ -88,17 +102,17 @@ without running anything. The commands are there to prove it is real.
 > flood-fill for hole-filling could only reach one side of a split background. We fixed it
 > by padding a one-pixel frame first."
 
-Both are documented in the code comments in `src/braintumor/segment.py` and covered by
+Both are documented in the code comments in `backend/src/braintumor/segment.py` and covered by
 regression tests.
 
 ---
 
 ## IF SOMETHING GOES WRONG
 
-- **Live demo fails?** Every figure is already saved in `outputs/`. Present from the images.
+- **Live demo fails?** Every figure is already saved in `backend/outputs/`. Present from the images.
   Nothing in the talk depends on code running live.
 - **They ask about real data?** "The pipeline is dataset-agnostic. Drop any Kaggle brain MRI
-  dataset into `data/raw/yes/` and `data/raw/no/` and rerun the same command. No code
+  dataset into `backend/data/raw/yes/` and `backend/data/raw/no/` and rerun the same command. No code
   changes."
 - **They ask if it can replace a doctor?** "No, and it is not designed to. It is a triage
   and decision-support tool. The radiologist makes the final call."
@@ -108,6 +122,9 @@ regression tests.
 ## THE CLOSING LINE
 
 > "OpenCV makes the image readable, machine learning makes the first call, and the
-> visualisation makes both verifiable by a human. 98% accuracy, 96% sensitivity, trains in
-> 15 seconds, and every decision it makes can be inspected. That combination — accurate
-> *and* explainable — is what makes it usable in a real clinic."
+> visualisation makes both verifiable by a human. 95.4% accuracy and 93.8% sensitivity for
+> detection with zero false alarms, 80.2% for naming the tumor type, and every stage of
+> every decision can be inspected in the browser. We also know exactly where it stops
+> working — glioma typing, at 35% recall — and we measured why. That combination —
+> accurate, explainable, and honest about its limits — is what makes it usable in a real
+> clinic."

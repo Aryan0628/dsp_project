@@ -5,11 +5,23 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
-data/synthetic/
-models/*.joblib
-outputs/*.png
-outputs/*.json
+# Datasets are only needed for training; fetch them with backend/scripts/download_datasets.py.
+# A handful of sample scans stay tracked so a fresh clone can try the app.
+backend/data/*
+!backend/data/samples/
+backend/models/*.joblib
+# Fine-tuned CNN weights, ~45 MB each - regenerate with ./run.sh train-all.
+# (Git has no trailing comments: a comment on the pattern line silently disables it.)
+backend/models/*.pt
+backend/outputs/*.png
+backend/outputs/*.json
 .DS_Store
+
+# Next.js frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/tsconfig.tsbuildinfo
 
 # Environment and local configuration
 .env
