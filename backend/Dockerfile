@@ -21,6 +21,11 @@ COPY main.py .
 COPY models ./models
 COPY outputs ./outputs
 
+# Run as an unprivileged user (uid 1000, which Hugging Face Spaces requires). config.py
+# creates data/ and outputs/ folders on import, so the app directory must be writable.
+RUN useradd -m -u 1000 app && mkdir -p data && chown -R app:app /app
+USER app
+
 EXPOSE 3000
 # Shell form so $PORT (injected by most hosts) is expanded.
 CMD python main.py serve --host 0.0.0.0 --port $PORT
