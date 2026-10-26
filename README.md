@@ -311,7 +311,7 @@ stack · automated PDF reporting · extension to CT and other modalities.
 
 ---
 
-## Requirements
+## Requirements .
 
 Python 3.9+ and Node 18+. Python dependencies in `requirements.txt` (OpenCV, scikit-learn,
 scikit-image, NumPy, Matplotlib, FastAPI, PyTorch). **No GPU required** — PyTorch is
