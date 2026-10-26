@@ -1,5 +1,5 @@
 # SYNOPSIS
-
+   
 ## Title
 
 **Medical Image Enhancement and Diagnostic Assistance System for Brain Tumor Detection
