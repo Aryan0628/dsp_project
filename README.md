@@ -12,7 +12,6 @@ Python/FastAPI backend, Next.js frontend.
 > for a clinical decision.
 
 ---
-
 ## Quick start
 
 ```bash
